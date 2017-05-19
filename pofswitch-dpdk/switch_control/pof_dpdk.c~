@@ -1,0 +1,601 @@
+//you can add other headers here;
+#include "pof_dpdk.h"
+
+#include "string.h"
+#include "sys/socket.h"
+#include "netinet/in.h"
+#include "net/if.h"
+#include "sys/ioctl.h"
+#include "arpa/inet.h"
+#include "ifaddrs.h"
+#include <stdio.h>
+
+//implement your own func with dpdk api or others;
+//add your own functions here, and you can use it in other source file;
+
+static void set_goto_first_table_instruction(struct pof_instruction *p) {
+	struct pof_instruction_goto_table *pigt =
+			(struct pof_instruction_goto_table *) p->instruction_data;
+
+	p->type = POFIT_GOTO_TABLE;
+	p->len = sizeof(pigt);
+	pigt->next_table_id = POFDP_FIRST_TABLE_ID;
+	return;
+}
+
+static uint32_t init_packet_metadata(struct pofdp_packet *dpp,
+		struct pofdp_metadata *metadata, size_t len) {
+	if (len < sizeof *metadata) {
+		POF_ERROR_HANDLE_RETURN_NO_UPWARD(POFET_SOFTWARE_FAILED,
+				POF_METADATA_LEN_ERROR);
+	}
+
+	dpp->metadata_len = len;
+	dpp->metadata = metadata;
+
+	memset(metadata, 0, len);
+	POF_PACKET_REL_LEN_SET(dpp, dpp->ori_len);
+	metadata->port_id = dpp->ori_port_id;
+
+	return POF_OK;
+}
+
+static uint32_t pofdp_forward(POFDP_ARG, struct pof_instruction *first_ins) {
+	uint8_t metadata[POFDP_METADATA_MAX_LEN] = { 0 };
+	uint32_t ret;
+
+	POF_DEBUG_CPRINT(1, BLUE, "\n");
+	POF_DEBUG_CPRINT_FL(1, BLUE,
+			"Receive a raw packet! len_B = %d, port id = %u", dpp->ori_len,
+			dpp->ori_port_id);
+	POF_DEBUG_CPRINT_FL_0X(1, GREEN, dpp->packetBuf, dpp->left_len,
+			"Input packet data is ");
+
+	/* Initialize the metadata. */
+	ret = init_packet_metadata(dpp, (struct pofdp_metadata *) metadata,
+			sizeof(metadata));
+	POF_CHECK_RETVALUE_RETURN_NO_UPWARD(ret);
+
+	/* Set the first instruction to the Datapath packet. */
+	dpp->ins = first_ins;
+	dpp->ins_todo_num = 1;
+
+	ret = pofdp_instruction_execute(dpp, lr);
+	POF_CHECK_RETVALUE_RETURN_NO_UPWARD(ret);
+	return POF_OK;
+}
+
+/*
+ * Initializes a given port using global settings and with the RX buffers
+ * coming from the mbuf_pool passed as a parameter.
+ */
+static inline int port_init(uint8_t port, struct rte_mempool *mbuf_pool) {
+	struct rte_eth_conf port_conf = port_conf_default;
+	const uint16_t rx_rings = 1, tx_rings = 1;
+	int retval;
+	uint16_t q;
+
+	if (port >= rte_eth_dev_count())
+		return -1;
+
+	/* Configure the Ethernet device. */
+	retval = rte_eth_dev_configure(port, rx_rings, tx_rings, &port_conf);
+	if (retval != 0)
+		return retval;
+
+	/* Allocate and set up 1 RX queue per Ethernet port. */
+	for (q = 0; q < rx_rings; q++) {
+		retval = rte_eth_rx_queue_setup(port, q, RX_RING_SIZE,
+				rte_eth_dev_socket_id(port), NULL, mbuf_pool);
+		if (retval < 0)
+			return retval;
+	}
+
+	/* Allocate and set up 1 TX queue per Ethernet port. */
+	for (q = 0; q < tx_rings; q++) {
+		retval = rte_eth_tx_queue_setup(port, q, TX_RING_SIZE,
+				rte_eth_dev_socket_id(port), NULL );
+		if (retval < 0)
+			return retval;
+	}
+
+	/* Start the Ethernet port. */
+	retval = rte_eth_dev_start(port);
+	if (retval < 0)
+		return retval;
+
+	/* Display the port MAC address. */
+	struct ether_addr addr;
+	rte_eth_macaddr_get(port, &addr);
+	printf("Port %u MAC: %02" PRIx8 " %02" PRIx8 " %02" PRIx8
+	" %02" PRIx8 " %02" PRIx8 " %02" PRIx8 "\n", (unsigned) port,
+			addr.addr_bytes[0], addr.addr_bytes[1], addr.addr_bytes[2],
+			addr.addr_bytes[3], addr.addr_bytes[4], addr.addr_bytes[5]);
+
+	/* Enable RX in promiscuous mode for the Ethernet device. */
+	rte_eth_promiscuous_enable(port);
+
+	return 0;
+}
+
+static uint32_t dpdk_send_raw(struct pofdp_packet *dpp,
+		const struct pof_local_resource *lr) {
+
+	uint8_t ori_port = (uint8_t) dpp->ori_port_id;
+
+	uint8_t output_port_id = (uint8_t) dpp->output_port_id;
+	uint32_t packet_len = (uint32_t) dpp->output_whole_len;
+
+	tx_bufs[0]->pkt_len = packet_len;
+	tx_bufs[0]->data_len = packet_len;
+//    tx_bufs[0]->buf_len = tx_bufs[0]->buf_len+(packet_len - tx_bufs[0]->pkt_len);
+
+	memcpy(tx_bufs[0]->buf_addr + tx_bufs[0]->data_off, dpp->buf_out,
+			tx_bufs[0]->pkt_len);
+
+	//printf("one packetout in flood: output port id is %d\n", output_port_id);
+
+	POF_DEBUG_CPRINT_FL(1, GREEN, "mbuf buf_len = %u, data_len=%u, pkt_len=%u",
+			tx_bufs[0]->buf_len, tx_bufs[0]->data_len, tx_bufs[0]->pkt_len);
+
+	//const uint16_t nb_tx = rte_eth_tx_burst(output_port_id, 0, tx_bufs, 1);
+	uint16_t nb_tx = 0;
+	while(nb_tx == 0){
+		nb_tx = rte_eth_tx_burst(output_port_id, 0, tx_bufs, 1);	
+	}
+
+	return POF_OK;
+}
+
+
+uint32_t dpdk_send_flood_task(struct pofdp_packet *dpp,
+		const struct pof_local_resource *lr) {
+	/* Copy metadata to output buffer. */
+	pofbf_copy_bit((uint8_t *) dpp->metadata, dpp->buf_out,
+			dpp->output_metadata_offset,
+			dpp->output_metadata_len * POF_BITNUM_IN_BYTE);
+	/* Copy packet to output buffer right behind metadata. */
+	memcpy(dpp->buf_out + dpp->output_metadata_len,
+			dpp->output_packet_buf + dpp->output_packet_offset,
+			dpp->output_packet_len);
+
+	POF_DEBUG_CPRINT_FL(1, GREEN,
+			"One packet is about to be sent out! port_id = %d, slot_id = %u, packet_len = %u, metadata_len = %u, total_len = %u",
+			dpp->output_port_id, dpp->output_slot_id, dpp->output_packet_len,
+			dpp->output_metadata_len, dpp->output_whole_len);
+	POF_DEBUG_CPRINT_FL_0X(1, GREEN,
+			dpp->output_packet_buf + dpp->output_packet_offset,
+			dpp->output_packet_len, "The packet is ");
+	POF_DEBUG_CPRINT_FL_0X(1, GREEN, dpp->buf_out, dpp->output_metadata_len,
+			"The metatada is ");
+	POF_DEBUG_CPRINT_FL_0X(1, BLUE, dpp->buf_out, dpp->output_whole_len,
+			"The whole output packet is ");
+
+	/* Check the packet lenght. */
+	if (dpp->output_whole_len > POF_MTU_LENGTH) {
+		POF_ERROR_HANDLE_RETURN_UPWARD(POFET_SOFTWARE_FAILED,
+				POF_PACKET_LEN_ERROR, g_upward_xid++);
+	}
+
+
+	//if (dpdk_send_raw(dpp, lr) != POF_OK) {
+	//	POF_ERROR_HANDLE_RETURN_NO_UPWARD(POFET_SOFTWARE_FAILED,
+	//			POF_SEND_MSG_FAILURE);
+	//}
+
+	const uint8_t nb_ports = rte_eth_dev_count();
+    uint8_t port;
+		/*
+		 * Check that the port is on the same NUMA node as the polling thread
+		 * for best performance.
+		 */
+	for (port = 0; port < nb_ports; port++)
+		if (rte_eth_dev_socket_id(port) > 0
+				&& rte_eth_dev_socket_id(port) != (int) rte_socket_id())
+			printf("WARNING, port %u is on remote NUMA node to "
+					"polling thread.\n\tPerformance will "
+					"not be optimal.\n", port);
+	for (port = 0; port < nb_ports; port++) {
+
+		if(dpp->ori_port_id != (uint32_t)port){
+		dpp->output_port_id = (uint16_t)port;
+		if (dpdk_send_raw(dpp, lr) != POF_OK) {
+			POF_ERROR_HANDLE_RETURN_NO_UPWARD(POFET_SOFTWARE_FAILED,
+					POF_SEND_MSG_FAILURE);
+		}
+		}
+	}
+	return POF_OK;
+}
+
+
+
+
+uint32_t dpdk_send_raw_task(struct pofdp_packet *dpp,
+		const struct pof_local_resource *lr) {
+	/* Copy metadata to output buffer. */
+	pofbf_copy_bit((uint8_t *) dpp->metadata, dpp->buf_out,
+			dpp->output_metadata_offset,
+			dpp->output_metadata_len * POF_BITNUM_IN_BYTE);
+	/* Copy packet to output buffer right behind metadata. */
+	memcpy(dpp->buf_out + dpp->output_metadata_len,
+			dpp->output_packet_buf + dpp->output_packet_offset,
+			dpp->output_packet_len);
+
+	POF_DEBUG_CPRINT_FL(1, GREEN,
+			"One packet is about to be sent out! port_id = %d, slot_id = %u, packet_len = %u, metadata_len = %u, total_len = %u",
+			dpp->output_port_id, dpp->output_slot_id, dpp->output_packet_len,
+			dpp->output_metadata_len, dpp->output_whole_len);
+	POF_DEBUG_CPRINT_FL_0X(1, GREEN,
+			dpp->output_packet_buf + dpp->output_packet_offset,
+			dpp->output_packet_len, "The packet is ");
+	POF_DEBUG_CPRINT_FL_0X(1, GREEN, dpp->buf_out, dpp->output_metadata_len,
+			"The metatada is ");
+	POF_DEBUG_CPRINT_FL_0X(1, BLUE, dpp->buf_out, dpp->output_whole_len,
+			"The whole output packet is ");
+
+	/* Check the packet lenght. */
+	if (dpp->output_whole_len > POF_MTU_LENGTH) {
+		POF_ERROR_HANDLE_RETURN_UPWARD(POFET_SOFTWARE_FAILED,
+				POF_PACKET_LEN_ERROR, g_upward_xid++);
+	}
+
+	if (dpdk_send_raw(dpp, lr) != POF_OK) {
+		POF_ERROR_HANDLE_RETURN_NO_UPWARD(POFET_SOFTWARE_FAILED,
+				POF_SEND_MSG_FAILURE);
+	}
+
+	return POF_OK;
+}
+
+
+uint32_t pof_dpdk_port_listen(struct pof_local_resource *lr) {
+	uint32_t ret;
+	task_t dpdk_pid;
+
+	ret = pofbf_task_create(lr, (void *) dpdk_recv_raw_task, &dpdk_pid);
+
+	POF_CHECK_RETVALUE_RETURN_NO_UPWARD(ret);
+
+	return POF_OK;
+}
+
+/*
+ * The dpdk_recv_raw_task. This is the main thread that does the work, reading from
+ * an input port and writing to an output port.
+ */
+static uint32_t dpdk_recv_raw_task(void *arg_lr) {
+
+	const uint8_t nb_ports = rte_eth_dev_count();
+	uint8_t port;
+	/*
+	 * Check that the port is on the same NUMA node as the polling thread
+	 * for best performance.
+	 */
+	for (port = 0; port < nb_ports; port++)
+		if (rte_eth_dev_socket_id(port) > 0
+				&& rte_eth_dev_socket_id(port) != (int) rte_socket_id())
+			printf("WARNING, port %u is on remote NUMA node to "
+					"polling thread.\n\tPerformance will "
+					"not be optimal.\n", port);
+
+
+	struct pof_datapath *dp = &g_dp;
+	struct pof_local_resource *lr = (struct pof_local_resource *) arg_lr;
+//	struct pof_local_resource *lr = NULL;
+	struct pofdp_packet dpp[1] = { 0 };
+	struct pof_instruction first_ins[1] = { 0 };
+
+	uint32_t len_B, ret;
+
+//	if((lr = pofdp_get_local_resource(port_ptr->slotID, dp)) == NULL){
+//	        POF_ERROR_HANDLE_RETURN_UPWARD(POFET_SOFTWARE_FAILED, POF_INVALID_SLOT_ID, g_upward_xid++);
+//	    }
+	/* Set GOTO_TABLE instruction to go to the first flow table. */
+	set_goto_first_table_instruction(first_ins);
+
+	/* Run until the application is quit or killed. */
+	for (;;) {
+		/*
+		 * Receive packets on a port and forward them on the paired
+		 * port. The mapping is 0 -> 1, 1 -> 0, 2 -> 3, 3 -> 2, etc.
+		 */
+		for (port = 0; port < nb_ports; port++) {
+
+
+			pthread_testcancel();
+
+			/* Initialize the dpp. */
+			memset(dpp, 0, sizeof *dpp);
+			dpp->packetBuf = &(dpp->buf[POFDP_PACKET_PREBUF_LEN]);
+
+			/* Get burst of RX packets, from first port of pair. */
+			struct rte_mbuf *bufs[BURST_SIZE];
+			const uint16_t nb_rx = rte_eth_rx_burst(port, 0, bufs, BURST_SIZE);
+
+			if (unlikely(nb_rx == 0))
+				continue;
+
+			/*handle every package*/
+			int pkg_i = 0;
+			struct rte_mbuf *packet;
+			for (pkg_i = 0; pkg_i < nb_rx; pkg_i++) {
+				packet = bufs[pkg_i];
+rte_pktmbuf_free(bufs[pkg_i]);
+				len_B = packet->pkt_len;
+//				len_B = packet->data_len;
+
+				if (len_B > POF_MTU_LENGTH) {
+					POF_DEBUG_CPRINT_FL(1, RED,
+							"The packet received is longer than MTU. DROP!");
+					continue;
+				}
+
+				memset(dpp->packetBuf, 0, len_B);
+
+				rte_prefetch0(rte_pktmbuf_mtod(packet, void *) );
+				memcpy(dpp->packetBuf, packet->buf_addr + packet->data_off,
+						len_B);
+				/* Store packet data, length, received port infomation into the message queue. */
+//				dpp->ori_port_id = port_ptr->pofIndex;
+				dpp->ori_port_id = (uint32_t) port;
+				dpp->ori_len = len_B;
+				dpp->left_len = dpp->ori_len;
+				dpp->buf_offset = dpp->packetBuf;
+
+				dpp->dp = dp;
+
+				/* Check whether the first flow table exist. */
+				if (!(poflr_get_table_with_ID(POFDP_FIRST_TABLE_ID, lr))) {
+					POF_DEBUG_CPRINT_FL(1, RED,
+							"Received a packet, but the first flow table does NOT exist.");
+					continue;
+				}
+
+				/* Forward the packet. */
+				tx_bufs[0] = packet;
+				ret = pofdp_forward(dpp, lr, first_ins);
+				POF_CHECK_RETVALUE_NO_RETURN_NO_UPWARD(ret);
+
+				dp->pktCount++;
+				POF_DEBUG_CPRINT_FL(1, GREEN,
+						"one packet_raw has been processed!\n");
+			}
+
+		}
+	}
+	return POF_OK;
+}
+
+uint32_t dpdk_init(int argc, char *argv[]) {
+//	WITH_DPDK_MODUL
+	struct rte_mempool *mbuf_pool;
+	unsigned nb_ports;
+	uint8_t portid;
+
+	printf("we are going into the rte_eal_init\n");
+
+	/* Initialize the Environment Abstraction Layer (EAL). */
+
+	int ret = rte_eal_init(argc, argv);
+	if (ret < 0)
+		rte_exit(EXIT_FAILURE, "Error with EAL initialization\n");
+
+	/* Check that there is an even number of ports to send/receive on. */
+	nb_ports = rte_eth_dev_count();
+	printf("the number of ports is %d\n", nb_ports);
+	//2016/03/01 wenjian modified
+	//if (nb_ports < 2 || (nb_ports & 1))
+	//	rte_exit(EXIT_FAILURE, "Error: number of ports must be even\n");
+
+	/* Creates a new mempool in memory to hold the mbufs. */
+	mbuf_pool = rte_mempool_create("MBUF_POOL", NUM_MBUFS * nb_ports, MBUF_SIZE,
+			MBUF_CACHE_SIZE, sizeof(struct rte_pktmbuf_pool_private),
+			rte_pktmbuf_pool_init, NULL, rte_pktmbuf_init, NULL,
+			rte_socket_id(), 0);
+
+        /*initilaize the txbuf*/
+	tx_bufs[0] = rte_pktmbuf_alloc(mbuf_pool);
+	//tx_bufs[0] = 0;
+	//tx_bufs[0] = 0;
+	//tx_bufs[0] = NULL;
+
+	if (mbuf_pool == NULL )
+		rte_exit(EXIT_FAILURE, "Cannot create mbuf pool\n");
+
+	/* Initialize all ports. */
+	for (portid = 0; portid < nb_ports; portid++)
+		if (port_init(portid, mbuf_pool) != 0)
+			rte_exit(EXIT_FAILURE, "Cannot init port %"PRIu8 "\n", portid);
+
+	if (rte_lcore_count() > 1)
+		printf("\nWARNING: Too many lcores enabled. Only 1 used.\n");
+
+	/* Call lcore_main on the master core only. */
+//	lcore_main();
+	return 0;
+}
+
+static int get_string(const char str[], char dest[]) {
+	int i = 0;
+	int j = 0;
+	for (i = 0; i < strlen(str); i++) {
+		if ((str[i] != '\"') && (str[i] != ' ')) {
+			dest[j] = str[i];
+			j++;
+		}
+
+	}
+	dest[j] = '\0';
+	return POF_OK;
+}
+//uint32_t get_eth_name_by_hwaddr(const char *hwaddr, char name[]) {
+//	FILE *fp = NULL;
+//	char filename[] = "/etc/udev/rules.d/70-persistent-net.rules";
+//	char s_line[512] = "\0";
+//	int i = 0;
+//	if ((fp = fopen(filename, "r")) == NULL )
+//		printf("Open failed.");
+//
+//	while (fgets(s_line, sizeof(s_line), fp)) {
+//		int flag = 0;
+//		char item[8][512];
+//		char tmp[512];
+//		char pre_name[512];
+//		char pre[512];
+//		if ((s_line[0] != '#') && (s_line[0] != '\n') && (s_line[0] != '0')) {
+//			sscanf(s_line, "%[^,],%[^,],%[^,],%[^,],%[^,],%[^,],%[^,],%[^,]",
+//					item[0], item[1], item[2], item[3], item[4], item[5],
+//					item[6], item[7]);
+//			for (i = 0; i < 8; i++) {
+//				sscanf(item[i], "%[^=]", tmp);
+//				if (get_string(tmp, pre_name) != POF_OK)
+//					printf("GET STRING ERROR!\n");
+//				sscanf(item[i], "%*[^\"]%s", tmp);
+//				if (get_string(tmp, pre) != POF_OK)
+//					printf("GET STRING ERROR!\n");
+//				if (strcmp(pre, hwaddr) == 0)
+//					flag = 1;
+//				if ((flag == 1) && (strcmp(pre_name, "NAME") == 0)) {
+//					sscanf(item[i], "%*[^\"]%s", tmp);
+//					if (get_string(tmp, name) != POF_OK)
+//						printf("GET STRING ERROR!\n");
+//				}
+//			}
+//		}
+//	}
+//	fclose(fp);
+//	return POF_OK;
+//}
+
+
+uint32_t get_eth_name_by_hwaddr(const char *hwaddr, char name[]) {
+	FILE *fp = NULL;
+	char filename[] = "/usr/local/src/interfaces-index";
+	char s_line[512] = "\0";
+	int i = 0;
+	if ((fp = fopen(filename, "r")) == NULL )
+		printf("Open failed.");
+
+	while (fgets(s_line, sizeof(s_line), fp)) {
+		int flag = 0;
+		char item[2][512];
+		char tmp[512];
+		char pre_name[512];
+		char pre[512];
+//		if ((s_line[0] != '#') && (s_line[0] != '\n') && (s_line[0] != '0')) {
+			sscanf(s_line, "%[^,],%[^,]",item[0], item[1]);
+			//printf("item0 %s, item1 %s\n", item[0],item[1]);
+			for (i = 0; i < 2; i++) {
+				sscanf(item[i], "%[^=]", tmp);
+				if (get_string(tmp, pre_name) != POF_OK)
+					printf("GET STRING ERROR!\n");
+				sscanf(item[i], "%*[^\"]%s", tmp);
+				if (get_string(tmp, pre) != POF_OK)
+					printf("GET STRING ERROR!\n");
+				if (strcmp(pre, hwaddr) == 0)
+					flag = 1;
+				if ((flag == 1) && (strcmp(pre_name, "NAME") == 0)) {
+					sscanf(item[i], "%*[^\"]%s", tmp);
+					if (get_string(tmp, name) != POF_OK)
+						printf("GET STRING ERROR!\n");
+				}
+			}
+//		}
+	}
+	fclose(fp);
+	return POF_OK;
+}
+
+uint32_t mac_to_str(struct ether_addr* mac_addrs, char mac_str[]) {
+
+	//sprintf(mac_str, "%d", mac_addrs->addr_bytes[0]);
+	sprintf(mac_str, "%02x:%02x:%02x:%02x:%02x:%02x", mac_addrs->addr_bytes[0],
+			mac_addrs->addr_bytes[1], mac_addrs->addr_bytes[2],
+			mac_addrs->addr_bytes[3], mac_addrs->addr_bytes[4],
+			mac_addrs->addr_bytes[5]);
+	//printf("mac_str %s\n", mac_str);
+	return POF_OK;
+}
+
+uint32_t cmd_print_dpdkports() {
+	const uint8_t nb_ports = rte_eth_dev_count();
+	struct rte_eth_dev *dev;
+	struct dpdk_port_info *port_info;
+	uint8_t port;
+	char mac_str[512];
+	char name[512];
+
+	struct dpdk_port_info dpdk_port[MAX_DPDK_PORT_NUM];
+	get_dpdk_port_info(dpdk_port);
+
+	for (port = 0; port < nb_ports; port++) {
+
+		port_info = &dpdk_port[port];
+		POF_COMMAND_PRINT(1, CYAN, "port_id = ");
+		POF_COMMAND_PRINT(1, WHITE, "%d ", port_info->port_id);
+
+		POF_COMMAND_PRINT(1, CYAN, "name = ");
+		POF_COMMAND_PRINT(1, WHITE, "%s ", port_info->port_name);
+
+		POF_COMMAND_PRINT(1, CYAN, "MAC = ");
+		POF_COMMAND_PRINT_0X_NO_ENTER(port_info->port_mac_addr, POF_ETH_ALEN);
+
+		POF_COMMAND_PRINT(1, CYAN, "\n");
+
+	}
+	return POF_OK;
+}
+uint32_t get_dpdk_port_info(struct dpdk_port_info dpdk_port[]) {
+	const uint8_t nb_ports = rte_eth_dev_count();
+	struct rte_eth_dev *dev;
+	uint8_t port;
+	char mac_str[512];
+	char name[512];
+	for (port = 0; port < nb_ports; port++) {
+		dev = &rte_eth_devices[port];
+
+		dpdk_port[port].port_id = dev->data->port_id;
+		dpdk_port[port].port_mac_addr = dev->data->mac_addrs;
+
+		if (mac_to_str(dev->data->mac_addrs, mac_str) != POF_OK)
+			printf("MAC TO STRING ERROR!\n");
+
+		get_eth_name_by_hwaddr(mac_str, name);
+
+		int i = 0,j=0;
+		dpdk_port[port].port_name[0]='D';
+		dpdk_port[port].port_name[1]='P';
+		dpdk_port[port].port_name[2]='D';
+		dpdk_port[port].port_name[3]='K';
+		for (i = 4; i < MAX_PORT_NAME; i++,j++)
+			dpdk_port[port].port_name[i] = name[j];
+		dpdk_port[port].port_name[MAX_PORT_NAME] = '\0';
+		//char *ch = &name[0];
+		//strcpy(dpdk_port[port].port_name, ch);
+	}
+	return POF_OK;
+}
+/* Check whether there is a port with the name in the system. */
+uint32_t checkDPDKPortNameInSys(const char *name) {
+	struct dpdk_port_info *port_info;
+	uint8_t port;
+	uint32_t ret;
+
+	uint8_t nb_ports = rte_eth_dev_count();
+
+	struct dpdk_port_info dpdk_port[MAX_DPDK_PORT_NUM];
+	ret = get_dpdk_port_info(dpdk_port);
+
+	if (!name) {
+		return POF_ERROR;
+	}
+
+	for (port = 0; port < nb_ports; port++) {
+		port_info = &dpdk_port[port];
+		//printf("port info port %s, name %s", port_info->port_name, name);
+		if (strcmp(port_info->port_name, name) == 0)
+			return POF_OK;
+	}
+	return -1;
+}
