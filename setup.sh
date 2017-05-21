@@ -10,7 +10,7 @@ sudo autoconf
 
 sudo automake
 
-export DPDK_BUILD=$POFSW_ROOT/~/dpdk-2.2.0/x86_64-native-linuxapp-gcc
+export DPDK_BUILD=$POFSW_ROOT/../dpdk-2.2.0/x86_64-native-linuxapp-gcc
 
 sudo ./configure --with-dpdk=$DPDK_BUILD LIBS=-ldl
 
