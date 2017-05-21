@@ -336,12 +336,12 @@ static uint32_t dpdk_recv_raw_task(void *arg_lr) {
 				dpp->buf_offset = dpp->packetBuf;
 				dpp->dp = dp;
 
-//				/* Check whether the first flow table exist. */
-//				if (!(poflr_get_table_with_ID(POFDP_FIRST_TABLE_ID, lr))) {
-//					POF_DEBUG_CPRINT_FL(1, RED,
-//							"Received a packet, but the first flow table does NOT exist.");
-//					continue;
-//				}
+				/* Check whether the first flow table exist. */
+				if (!(poflr_get_table_with_ID(POFDP_FIRST_TABLE_ID, lr))) {
+					POF_DEBUG_CPRINT_FL(1, RED,
+							"Received a packet, but the first flow table does NOT exist.");
+					continue;
+				}
 
 				/* Forward the packet. */
 

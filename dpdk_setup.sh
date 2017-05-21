@@ -1,3 +1,5 @@
+#!/bin/sh
+
 set -e
 
 cd net_interfaces
@@ -12,7 +14,7 @@ sudo ./get_interfaces_index.o
 echo "Network interfaces index get Success"
 
 cd
-cd /%pathset%/dpdk-2.2.0
+cd $POFSW_ROOT/~/dpdk-2.2.0
 #su
 #echo 1024 > /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
 #exit

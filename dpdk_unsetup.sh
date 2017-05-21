@@ -1,7 +1,8 @@
+#!/bin/sh
 set -e
 cd
 
-cd /%pathset%/dpdk-2.2.0
+cd $POFSW_ROOT/~/dpdk-2.2.0
 
 sudo umount -t hugetlbfs nodev /mnt/huge
 

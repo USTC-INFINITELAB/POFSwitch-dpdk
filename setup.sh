@@ -1,3 +1,4 @@
+#!/bin/sh
 set -e
 sudo make uninstall
 
@@ -9,7 +10,7 @@ sudo autoconf
 
 sudo automake
 
-export DPDK_BUILD=%pathset%/dpdk-2.2.0/x86_64-native-linuxapp-gcc
+export DPDK_BUILD=$POFSW_ROOT/~/dpdk-2.2.0/x86_64-native-linuxapp-gcc
 
 sudo ./configure --with-dpdk=$DPDK_BUILD LIBS=-ldl
 
@@ -19,4 +20,4 @@ sudo make install
 
 sudo make clean
 
-echo "POFSwitch Success"
+echo "POFSwitch install successfully"
