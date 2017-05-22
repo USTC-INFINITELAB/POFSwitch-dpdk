@@ -61,12 +61,12 @@ static uint32_t pofdp_forward(POFDP_ARG, struct pof_instruction *first_ins) {
 //	uint8_t metadata[POFDP_METADATA_MAX_LEN] = { 0 };
 	uint32_t ret;
 
-//	POF_DEBUG_CPRINT(1, BLUE, "\n");
-//	POF_DEBUG_CPRINT_FL(1, BLUE,
-//			"Receive a raw packet! len_B = %d, port id = %u", dpp->ori_len,
-//			dpp->ori_port_id);
-//	POF_DEBUG_CPRINT_FL_0X(1, GREEN, dpp->packetBuf, dpp->left_len,
-//			"Input packet data is ");
+	POF_DEBUG_CPRINT(1, BLUE, "\n");
+	POF_DEBUG_CPRINT_FL(1, BLUE,
+			"Receive a raw packet! len_B = %d, port id = %u", dpp->ori_len,
+			dpp->ori_port_id);
+	POF_DEBUG_CPRINT_FL_0X(1, GREEN, dpp->packetBuf, dpp->left_len,
+			"Input packet data is ");
 
 	/* Initialize the metadata. */
 	ret = init_packet_metadata(dpp, (struct pofdp_metadata *) metadata,
@@ -150,8 +150,8 @@ static uint32_t dpdk_send_raw(struct pofdp_packet *dpp,
 			tx_bufs[0]->pkt_len);
 
 
-//	POF_DEBUG_CPRINT_FL(1, GREEN, "mbuf buf_len = %u, data_len=%u, pkt_len=%u",
-//			tx_bufs[0]->buf_len, tx_bufs[0]->data_len, tx_bufs[0]->pkt_len);
+	POF_DEBUG_CPRINT_FL(1, GREEN, "mbuf buf_len = %u, data_len=%u, pkt_len=%u",
+			tx_bufs[0]->buf_len, tx_bufs[0]->data_len, tx_bufs[0]->pkt_len);
 
 	const uint16_t nb_tx = rte_eth_tx_burst(output_port_id, 0, tx_bufs, 1);
 
@@ -233,17 +233,17 @@ uint32_t dpdk_send_raw_task(struct pofdp_packet *dpp,
 			dpp->output_packet_buf + dpp->output_packet_offset,
 			dpp->output_packet_len);
 
-//	POF_DEBUG_CPRINT_FL(1, GREEN,
-//			"One packet is about to be sent out! port_id = %d, slot_id = %u, packet_len = %u, metadata_len = %u, total_len = %u",
-//			dpp->output_port_id, dpp->output_slot_id, dpp->output_packet_len,
-//			dpp->output_metadata_len, dpp->output_whole_len);
-//	POF_DEBUG_CPRINT_FL_0X(1, GREEN,
-//			dpp->output_packet_buf + dpp->output_packet_offset,
-//			dpp->output_packet_len, "The packet is ");
-//	POF_DEBUG_CPRINT_FL_0X(1, GREEN, dpp->buf_out, dpp->output_metadata_len,
-//			"The metatada is ");
-//	POF_DEBUG_CPRINT_FL_0X(1, BLUE, dpp->buf_out, dpp->output_whole_len,
-//			"The whole output packet is ");
+	POF_DEBUG_CPRINT_FL(1, GREEN,
+			"One packet is about to be sent out! port_id = %d, slot_id = %u, packet_len = %u, metadata_len = %u, total_len = %u",
+			dpp->output_port_id, dpp->output_slot_id, dpp->output_packet_len,
+			dpp->output_metadata_len, dpp->output_whole_len);
+	POF_DEBUG_CPRINT_FL_0X(1, GREEN,
+			dpp->output_packet_buf + dpp->output_packet_offset,
+			dpp->output_packet_len, "The packet is ");
+	POF_DEBUG_CPRINT_FL_0X(1, GREEN, dpp->buf_out, dpp->output_metadata_len,
+			"The metatada is ");
+	POF_DEBUG_CPRINT_FL_0X(1, BLUE, dpp->buf_out, dpp->output_whole_len,
+			"The whole output packet is ");
 
 	/* Check the packet lenght. */
 	if (dpp->output_whole_len > POF_MTU_LENGTH) {
@@ -299,9 +299,9 @@ static uint32_t dpdk_recv_raw_task(void *arg_lr) {
 
 	uint32_t len_B, ret;
 	int pkg_i = 0;
-//	if((lr = pofdp_get_local_resource(port_ptr->slotID, dp)) == NULL){
-//	        POF_ERROR_HANDLE_RETURN_UPWARD(POFET_SOFTWARE_FAILED, POF_INVALID_SLOT_ID, g_upward_xid++);
-//	    }
+	if((lr = pofdp_get_local_resource(port_ptr->slotID, dp)) == NULL){
+	        POF_ERROR_HANDLE_RETURN_UPWARD(POFET_SOFTWARE_FAILED, POF_INVALID_SLOT_ID, g_upward_xid++);
+	    }
 	/* Set GOTO_TABLE instruction to go to the first flow table. */
 	set_goto_first_table_instruction(first_ins);
 
@@ -365,8 +365,8 @@ static uint32_t dpdk_recv_raw_task(void *arg_lr) {
 				POF_CHECK_RETVALUE_NO_RETURN_NO_UPWARD(ret);
 
 				dp->pktCount++;
-//				POF_DEBUG_CPRINT_FL(1, GREEN,
-//						"one packet_raw has been processed!\n");
+				POF_DEBUG_CPRINT_FL(1, GREEN,
+						"one packet_raw has been processed!\n");
 			}
 //			const uint16_t nb_tx = rte_eth_tx_burst(1, 0, bufs, 1);
 

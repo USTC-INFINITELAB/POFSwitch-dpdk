@@ -73,7 +73,7 @@ sudo pofswitch -i [CONTROLLER_IPADDR] -D -c [COREMASK] -n [NUM]
 
 The details of the POFSwitch command parameters you can find at [https://github.com/USTC-INFINITELAB/POFSwitch/blob/master/README.md](https://github.com/USTC-INFINITELAB/POFSwitch/blob/master/README.md).
 
-For example, starting a POFSwitch-dpdk to connect to a POFController at 192.168.109.120 and specifing to use 4 cores, run:
+For example, start a POFSwitch-dpdk to connect to a POFController at 192.168.109.120 and specify to use 4 cores, run:
 
 ```bash
 sudo pofswitch -i 192.168.109.120 -D -c f -n 4
