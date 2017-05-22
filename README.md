@@ -38,6 +38,20 @@ export POFSW_ROOT=~/POFSwitch-dpdk
 export DPDK_ROOT=~/dpdk-2.2.0
 ```
 
+Check the value of `CONFIG_RTE_BUILD_SHARED_LIB` and `CONFIG_RTE_BUILD_COMBINE_LIBS` in `$DPDK_ROOT/config/common_linuxapp`, 
+make sure they are both set to `y`.
+
+```
+#
+# Compile to share library
+#
+CONFIG_RTE_BUILD_SHARED_LIB=y
+#
+# Combine to one single library
+#
+CONFIG_RTE_BUILD_COMBINE_LIBS=y
+```
+
 Install the DPDK environment, run:
 
 ```bash
