@@ -1,7 +1,7 @@
 #set -e
 cd
 
-cd dpdk-2.2.0
+cd $DPDK_ROOT
 
 sudo umount -t hugetlbfs nodev /mnt/huge
 

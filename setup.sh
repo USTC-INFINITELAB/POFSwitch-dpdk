@@ -9,7 +9,7 @@ sudo autoconf
 
 sudo automake
 
-export DPDK_BUILD=/home/sqy/dpdk-2.2.0/x86_64-native-linuxapp-gcc
+export DPDK_BUILD=$DPDK_ROOT/x86_64-native-linuxapp-gcc
 
 sudo ./configure --with-dpdk=$DPDK_BUILD LIBS=-ldl
 
